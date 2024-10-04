@@ -1,1 +1,5 @@
 *.pdf
+*.json
+*.index
+models
+*.pyc
