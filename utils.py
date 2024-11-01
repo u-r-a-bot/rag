@@ -15,7 +15,7 @@ class LLMModelHandler:
         self.rag_pipeline = None
     def load_model(self):
 
-        self.quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)
+        self.quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16)#Changed 4 bit to 8bit
         
         # Determine attention implementation
         if (is_flash_attn_2_available()) and (torch.cuda.get_device_capability(0)[0] >= 8):
@@ -27,13 +27,21 @@ class LLMModelHandler:
         
         # Load tokenizer and model
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path=self.model_id)
+        self.smol = True if '1B' in self.model_id else False
+        if self.smol:
+            print("Small Model loaded")
+        else:
+            print("Large model loaded")
         self.llm_model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path=self.model_id,
             torch_dtype=torch.float16,
-            quantization_config=self.quantization_config,
-            low_cpu_mem_usage=True,
+            quantization_config=self.quantization_config if not self.smol else None,
+            low_cpu_mem_usage=self.smol,
             attn_implementation=self.attn_implementation
         )
+        if self.smol == True:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.llm_model = self.llm_model.to(device)
     def build_faiss_index(self, pdf_file: str):
         """Processes a PDF and embeds it, then saves the FAISS index and metadata."""
         # Initialize RAGPipeline if it's not already initialized
@@ -63,7 +71,6 @@ class LLMModelHandler:
             print("[ERROR] FAISS index not built or loaded. Please call 'build_faiss_index' or 'load_faiss_index' first.")
             return
 
-        print(f"Searching FAISS index for query: {query}")
         results = self.rag_pipeline.search_in_faiss(query=query, k=5)
         
         base_prompt = """Based on the following context please answer the query:
@@ -105,7 +112,8 @@ class LLMModelHandler:
         else:
             dialogue_template = [{"role": "system", "content": "You are a smart AI assistant"}]
             if context:
-                dialogue_template.append(context)
+                for x in context:
+                    dialogue_template.append(x)
             dialogue_template.append({"role": "user", "content": query})
 
         # Prepare the prompt for generation
@@ -122,9 +130,7 @@ class LLMModelHandler:
         )
         
 
-        output_text = self.format_output(self.tokenizer.decode(outputs[0]), query = query)
-        print(output_text)
-        
+        output_text = self.format_output(self.tokenizer.decode(outputs[0]), query = query)        
         return output_text
     
     
@@ -147,17 +153,19 @@ class LLMModelHandler:
             dialogue_template.append({"role": "user", "content": query})
 
         prompt = self.tokenizer.apply_chat_template(conversation=dialogue_template, tokenize=False, add_generation_prompt=True)
-        input_ids = self.tokenizer(prompt, return_tensors='pt')['input_ids']
+        input_ids = self.tokenizer(prompt, return_tensors='pt')['input_ids'].to('cuda')
         
 
         pad_token_id = self.tokenizer.pad_token_id
         eos_token_id = self.tokenizer.eos_token_id 
-        num_tokens = 50
+        num_tokens = 15
 
-        for _ in range(256):  
+
+
+        for _ in range(512):  
             outputs = self.llm_model.generate(
                 input_ids=input_ids,
-                temperature=0.7,
+                temperature=0.5,
                 do_sample=True,
                 max_new_tokens=num_tokens,
                 pad_token_id=pad_token_id,

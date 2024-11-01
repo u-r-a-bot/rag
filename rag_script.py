@@ -7,6 +7,7 @@ from spacy.lang.en import English
 import re
 import json
 import os
+import torch
 from sentence_transformers import SentenceTransformer
 
 class RAGPipeline:
@@ -14,7 +15,7 @@ class RAGPipeline:
                  device: str = "cpu",
                  num_sentence_chunk_size: int = 10,
                  original_pageno: int = None):
-        self.device = device
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name_or_path = model_name_or_path
         self.num_sentence_chunk_size = num_sentence_chunk_size
         self.embedding_model = SentenceTransformer(model_name_or_path=self.model_name_or_path, device=self.device)
@@ -29,7 +30,7 @@ class RAGPipeline:
 
     @staticmethod
     def text_formatter(text: str) -> str:
-        cleaned_text = text.replace("\xa0", " ")  # Handles non-breaking space
+        cleaned_text = text.replace("\xa0", " ")  
         cleaned_text = cleaned_text.replace("\n", " ").strip()
         return cleaned_text
 
